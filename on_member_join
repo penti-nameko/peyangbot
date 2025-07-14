@@ -1,0 +1,89 @@
+# cogs/verification.py (新しいcogとして作成するのが良いでしょう)
+
+import discord
+from discord.ext import commands
+import asyncio
+
+class Verification(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+        # 認証チャンネルのIDを設定してください
+        self.verification_channel_id = 123456789012345678 # ここを認証用チャンネルのIDに置き換える
+        # 認証待ちロールのIDを設定してください (新メンバーに最初に付与するロール)
+        self.unverified_role_id = 987654321098765432 # ここを「認証待ち」ロールのIDに置き換える
+        # 認証成功後に付与するロールのIDを設定してください (通常メンバーロール)
+        self.verified_role_id = 112233445566778899 # ここを「メンバー」ロールのIDに置き換える
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member):
+        # ボット自身の参加は無視
+        if member.bot:
+            return
+
+        guild = member.guild
+        unverified_role = guild.get_role(self.unverified_role_id)
+        verification_channel = guild.get_channel(self.verification_channel_id)
+
+        if not unverified_role:
+            print(f"エラー: '認証待ち'ロール (ID: {self.unverified_role_id}) が見つかりません。")
+            return
+        if not verification_channel:
+            print(f"エラー: 認証チャンネル (ID: {self.verification_channel_id}) が見つかりません。")
+            return
+
+        # メンバーに「認証待ち」ロールを付与
+        await member.add_roles(unverified_role, reason="サーバー参加時の認証待ち")
+
+        # 認証チャンネルにウェルカムメッセージを送信
+        embed = discord.Embed(
+            title="サーバーへようこそ！",
+            description=(
+                f"{member.mention} さん、{guild.name}へようこそ！\n"
+                "このサーバーにアクセスするには、以下の認証ボタンをクリックしてください。\n"
+                "認証が完了するまで、一部のチャンネルは表示されません。"
+            ),
+            color=discord.Color.blue()
+        )
+        embed.set_footer(text="認証を行って、他のチャンネルへアクセスしてください。")
+
+        # 認証ボタンを作成 (discord.ui を使用)
+        view = discord.ui.View()
+        button = discord.ui.Button(label="✅ 認証する", style=discord.ButtonStyle.success, custom_id="verify_button")
+        view.add_item(button)
+
+        message = await verification_channel.send(embed=embed, view=view)
+        # 後でメッセージを編集するために、メッセージIDとユーザーIDを保存しておくこともできます
+        # 例: self.pending_verifications[member.id] = message.id
+
+    @commands.Cog.listener()
+    async def on_interaction(self, interaction: discord.Interaction):
+        # 認証ボタンがクリックされたことを検知
+        if interaction.type == discord.InteractionType.component and interaction.data["custom_id"] == "verify_button":
+            member = interaction.user
+            guild = interaction.guild
+
+            # 認証待ちロールを持っているか確認 (不正なアクセスを防ぐため)
+            unverified_role = guild.get_role(self.unverified_role_id)
+            if unverified_role not in member.roles:
+                await interaction.response.send_message("あなたは既に認証されています、または認証対象ではありません。", ephemeral=True)
+                return
+
+            verified_role = guild.get_role(self.verified_role_id)
+            if not verified_role:
+                print(f"エラー: 'メンバー'ロール (ID: {self.verified_role_id}) が見つかりません。")
+                await interaction.response.send_message("サーバー設定に問題があります。管理者に連絡してください。", ephemeral=True)
+                return
+
+            # 認証成功！ロールを付与・削除
+            await member.remove_roles(unverified_role, reason="認証完了")
+            await member.add_roles(verified_role, reason="認証完了")
+
+            await interaction.response.send_message(
+                f"✅ 認証が完了しました！{guild.name}へようこそ！", ephemeral=True
+            )
+            # 元のメッセージを編集してボタンを無効にするなど
+            # await interaction.message.edit(view=None) # ボタンを無効化する
+
+# cogのセットアップ関数
+async def setup(bot):
+    await bot.add_cog(Verification(bot))
