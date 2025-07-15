@@ -87,13 +87,41 @@ class SetupCog(commands.Cog):
             print(f"Error during setup command for guild {guild_id}: {e}")
             await ctx.send(f"❌ 設定の初期化中にエラーが発生しました: `{e}`")
 
+    @commands.command(name="removesetup")
+    @commands.has_permissions(administrator=True) # 管理者権限を持つユーザーのみ実行可能
+    async def remove_setup_server(self, ctx):
+        """
+        このサーバーのMoneBot設定をデータベースから削除します。
+        デバッグ用です。
+        """
+        guild_id = str(ctx.guild.id)
+
+        def _delete_settings_sync():
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM server_settings WHERE guild_id = ?", (guild_id,))
+                conn.commit()
+                return cursor.rowcount > 0 # 削除された行数があればTrue
+
+        try:
+            deleted = await self.bot.loop.run_in_executor(None, _delete_settings_sync)
+
+            if deleted:
+                await ctx.send("✅ このサーバーのMoneBot設定がデータベースから削除されました。")
+            else:
+                await ctx.send("ℹ️ このサーバーにはMoneBot設定が存在しませんでした。")
+        except Exception as e:
+            print(f"Error during removesetup command for guild {guild_id}: {e}")
+            await ctx.send(f"❌ 設定の削除中にエラーが発生しました: `{e}`")
+
     @setup_server.error
+    @remove_setup_server.error # removesetupコマンドのエラーハンドラを追加
     async def setup_error(self, ctx, error):
         if isinstance(error, commands.MissingPermissions):
             await ctx.send("⚠️ このコマンドを実行するには管理者権限が必要です。")
         else:
             # その他の予期せぬエラーをログに記録し、ユーザーに通知
-            print(f"Unhandled error in setup command: {error}")
+            print(f"Unhandled error in setup/removesetup command: {error}")
             await ctx.send(f"❌ コマンドの実行中に予期せぬエラーが発生しました: `{error}`")
 
 async def setup(bot):
